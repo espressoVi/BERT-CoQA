@@ -11,7 +11,7 @@ import spacy
 import torch
 from torch.utils.data import TensorDataset
 from tqdm import tqdm
-from data.processors.utils import DataProcessor
+from processors.utils import DataProcessor
 
 
 def _improve_answer_span(doc_tokens, input_start, input_end, tokenizer, orig_answer_text):
