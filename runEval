@@ -1,0 +1,1 @@
+python evaluate-v1.0.py --data-file data/coqa-dev-v1.0.json --pred-file Bert_ep2_beta5/predictions.json
