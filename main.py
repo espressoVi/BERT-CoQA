@@ -13,7 +13,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss
 
-#
 train_file="coqa-train-v1.0.json"
 predict_file="coqa-dev-v1.0.json"
 output_directory="Bert_comb"
@@ -41,11 +40,16 @@ class BertBaseUncasedModel(BertPreTrainedModel):
         self.beta = 5.0
         self.init_weights()
 
-    def forward(self,input_ids,segment_ids=None,input_masks=None,start_positions=None,end_positions=None,rationale_mask=None,cls_idx=None):
+    def forward(self,input_ids,segment_ids=None,input_masks=None,start_positions=None,end_positions=None,rationale_mask=None,cls_idx=None, attn = False):
 
-        #   Bert-base outputs
-        outputs = self.bert(input_ids,token_type_ids=segment_ids,attention_mask=input_masks, head_mask = None)
-        output_vector, bert_pooled_output = outputs
+        if attn:
+            outputs = self.bert(input_ids,token_type_ids=segment_ids,attention_mask=input_masks, head_mask = None, output_attentions = True)
+            output_vector, bert_pooled_output, attentions = outputs
+            attentions = list(attentions)
+        else:
+            outputs = self.bert(input_ids,token_type_ids=segment_ids,attention_mask=input_masks, head_mask = None)
+            output_vector, bert_pooled_output = outputs
+
 
         start_end_logits = self.span_modelling(output_vector)
         start_logits, end_logits = start_end_logits.split(1, dim=-1)
@@ -62,6 +66,8 @@ class BertBaseUncasedModel(BertPreTrainedModel):
         input_masks = input_masks.type(attention.dtype)
         attention = attention*input_masks + (1-input_masks)*MIN_FLOAT
         attention = F.softmax(attention, dim=-1)
+        if attn:
+            attentions.append(attention)
         attention_pooled_output = (attention.unsqueeze(-1) * output_vector).sum(dim=-2)
         cls_output = torch.cat((attention_pooled_output,bert_pooled_output),dim = -1)
 
@@ -88,7 +94,10 @@ class BertBaseUncasedModel(BertPreTrainedModel):
             total_loss = (start_loss + end_loss) / 2.0 + rationale_loss * self.beta
 
             return total_loss
-        return start_logits, end_logits, yes_logits, no_logits, unk_logits
+        if attn:
+            return start_logits, end_logits, yes_logits, no_logits, unk_logits,attentions
+        else:
+            return start_logits, end_logits, yes_logits, no_logits, unk_logits
 
 
 def convert_to_list(tensor):
@@ -180,6 +189,39 @@ def Write_predictions(model, tokenizer, device, dataset_type = None):
     output_prediction_file = os.path.join(output_directory, "predictions.json")
     get_predictions(examples, features, mod_results, 20, 30, True, output_prediction_file, False, tokenizer)
 
+def Write_attentions(model, tokenizer, device, dataset_type = None):
+    dataset, examples, features = load_dataset(tokenizer, evaluate=True,dataset_type = dataset_type)
+
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+        
+    evalutation_sampler = SequentialSampler(dataset)
+    evaluation_dataloader = DataLoader(dataset, sampler=evalutation_sampler, batch_size=evaluation_batch_size)
+    attn_results = []
+    for batch in tqdm(evaluation_dataloader, desc="Evaluating"):
+        model.eval()
+        batch = tuple(t.to(device) for t in batch)
+        with torch.no_grad():
+            inputs = {"input_ids": batch[0],"segment_ids": batch[1],"input_masks": batch[2],"attn":True}
+            example_indices = batch[3]
+            outputs = model(**inputs)
+        for i, example_index in enumerate(example_indices):
+            eval_feature = features[example_index.item()]
+            unique_id = int(eval_feature.unique_id)
+            attentions = outputs[-1]
+            attentions = [output[i].detach().cpu().numpy() for output in attentions]
+            output = [convert_to_list(output[i]) for output in outputs[:-1]]
+            start_logits, end_logits, yes_logits, no_logits, unk_logits = output
+            print(len(attentions))
+            #val = Attentions(eval_feature.unique_id,start_logits, end_logits, yes_logits, no_logits, unk_logits, attentions, eval_feature.tokens,
+            #        eval_feature.start_position, eval_feature.end_position, eval_feature.cls_idx, eval_feature.rational_mask)
+            #attn_results.append(val)
+
+    #output_attn_file = os.path.join(output_directory, f"attn_{output_directory}_{dataset_type}.pkl")
+    #with open(output_attn_file, 'wb') as out:
+    #    pickle.dump(attn_results , out, pickle.HIGHEST_PROTOCOL)
+
+
 
 def load_dataset(tokenizer, evaluate=False, dataset_type = None):
     #   converting raw coqa dataset into features to be processed by BERT   
@@ -189,7 +231,7 @@ def load_dataset(tokenizer, evaluate=False, dataset_type = None):
     else:
         cache_file = os.path.join(input_dir,"bert-base-uncased_train")
 
-    if os.path.exists(cache_file) and False:
+    if os.path.exists(cache_file):# and False:
         print("Loading cache",cache_file)
         features_and_dataset = torch.load(cache_file)
         features, dataset, examples = (
@@ -218,7 +260,7 @@ def load_dataset(tokenizer, evaluate=False, dataset_type = None):
     return dataset
 
 
-def main(isTraining = True):
+def main(isTraining = True,attn = False):
     assert torch.cuda.is_available()
     device = torch.device('cuda')
     config = BertConfig.from_pretrained(pretrained_model)
@@ -240,11 +282,17 @@ def main(isTraining = True):
         model_to_save.save_pretrained(output_directory)
         tokenizer.save_pretrained(output_directory)
     else:
-        model = BertBaseUncasedModel.from_pretrained(output_directory)
-        tokenizer = BertTokenizer.from_pretrained(output_directory, do_lower_case=True)
-        model.to(device)
-        Write_predictions(model, tokenizer, device)#dataset_type = "RG")
+        if attn:
+            model = BertBaseUncasedModel.from_pretrained(output_directory)
+            tokenizer = BertTokenizer.from_pretrained(output_directory, do_lower_case=True)
+            model.to(device)
+            Write_attentions(model, tokenizer, device,dataset_type = "RG")
+        else:
+            model = BertBaseUncasedModel.from_pretrained(output_directory)
+            tokenizer = BertTokenizer.from_pretrained(output_directory, do_lower_case=True)
+            model.to(device)
+            Write_predictions(model, tokenizer, device,dataset_type = "RG")
 
 if __name__ == "__main__":
-    main()
-    main(isTraining = False)
+    #main()
+    main(isTraining = False, attn = True)
