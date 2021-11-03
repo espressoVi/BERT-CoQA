@@ -169,7 +169,6 @@ def Write_predictions(model, tokenizer, device, dataset_type = None):
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
         
-    #   wrtiting predictions once training is complete
     evalutation_sampler = SequentialSampler(dataset)
     evaluation_dataloader = DataLoader(dataset, sampler=evalutation_sampler, batch_size=evaluation_batch_size)
     mod_results = []
@@ -188,7 +187,6 @@ def Write_predictions(model, tokenizer, device, dataset_type = None):
             result = Result(unique_id=unique_id, start_logits=start_logits, end_logits=end_logits, yes_logits=yes_logits, no_logits=no_logits, unk_logits=unk_logits)
             mod_results.append(result)
 
-    # Get predictions for development dataset and store it in predictions.json
     output_prediction_file = os.path.join(output_directory, "predictions.json")
     get_predictions(examples, features, mod_results, 20, 30, True, output_prediction_file, False, tokenizer)
 
@@ -220,11 +218,12 @@ def Write_attentions(model, tokenizer, device, dataset_type = None):
                 r_start,r_end = _ones[0],_ones[-1]+1
             except:
                 continue
-            #a = {'doc_token': eval_feature.tokens, 'rationale':eval_feature.tokens[r_start:r_end], 'start,end':(r_start,r_end),'attention':attentions[4][0]}
-            #pickle.dump(a, open('att.pkl', 'wb'))
+            #a = {'doc_token': eval_feature.tokens, 'rationale':eval_feature.tokens[r_start:r_end], 'start,end':(r_start,r_end),'attention':attentions[0][0]}
+            #pickle.dump(a, open(f'Bert_att_head0_{i}.pkl', 'wb'))
             for j in range(12):
-                attn_results[j].append(attention_res(attentions[j], 0,r_start,r_end, length))
+                attn_results[j].append(attention_res(attentions[j], -1,r_start,r_end, length))
             #print(np.sum(attentions[12][r_start:r_end]))
+
     attn_results = np.array(attn_results)
     print(attn_results)
     print('Mean: \n')
@@ -234,7 +233,10 @@ def Write_attentions(model, tokenizer, device, dataset_type = None):
 
 def attention_res(attention,head,r_start,r_end,length):
     assert head < len(attention)
-    attention = attention[head]
+    if head == -1:
+        attention = np.mean(attention, axis = 0)
+    else:
+        attention = attention[head]
     assert attention.shape == (max_seq_length,max_seq_length)
     su,su_r,su_nr = [],[],[]
     for i in range(length):
