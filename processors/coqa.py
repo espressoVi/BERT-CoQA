@@ -579,15 +579,16 @@ class Processor(DataProcessor):
             if dataset_type is not None:
                 if dataset_type == "TS":
                     edge,inc = r_end,True
-                elif dataset_type == "R" or dataset_type == "RG":
+                elif dataset_type in ["R","RG"]:
                     edge,inc = r_start,False
+                    r_start,r_end = -1,-1
                 for i,j in _datum['annotated_context']['sentences']:
                     if edge >= i and edge <= j:
                         sent = j if inc else i
                 doc_tok = doc_tok[:sent]
-                if dataset_type in ["R","RG"]:
-                    doc_tok.append(_qas['raw_answer'])
-                    r_start,r_end = 0,len(doc_tok)
+                if dataset_type == "RG":
+                    if " ".join(doc_tok).find(_qas['raw_answer']) == -1 and _qas['raw_answer'] not in ['unknown','yes','no']:
+                        doc_tok.append(_qas['raw_answer'])
 
             example = CoqaExample(
                 qas_id = _datum['id'] + ' ' + str(_qas['turn_id']),

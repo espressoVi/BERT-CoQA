@@ -15,7 +15,7 @@ from torch.nn import CrossEntropyLoss
 import numpy as np
 import pickle
 
-train_file="coqa-train-v1.0.json"
+train_file="coqa-train-v1.1.json"
 predict_file="coqa-dev-v1.0.json"
 output_directory="Bert_base"
 pretrained_model="bert-base-uncased"
@@ -257,7 +257,7 @@ def load_dataset(tokenizer, evaluate=False, dataset_type = None):
     else:
         cache_file = os.path.join(input_dir,"bert-base-uncased_train")
 
-    if os.path.exists(cache_file):# and False:
+    if os.path.exists(cache_file) and False:
         print("Loading cache",cache_file)
         features_and_dataset = torch.load(cache_file)
         features, dataset, examples = (
