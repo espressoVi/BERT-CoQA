@@ -581,14 +581,29 @@ class Processor(DataProcessor):
                     edge,inc = r_end,True
                 elif dataset_type in ["R","RG"]:
                     edge,inc = r_start,False
-                    r_start,r_end = -1,-1
                 for i,j in _datum['annotated_context']['sentences']:
                     if edge >= i and edge <= j:
                         sent = j if inc else i
                 doc_tok = doc_tok[:sent]
+                if len(doc_tok) == 0:
+                    continue
                 if dataset_type == "RG":
-                    if " ".join(doc_tok).find(_qas['raw_answer']) == -1 and _qas['raw_answer'] not in ['unknown','yes','no']:
-                        doc_tok.append(_qas['raw_answer'])
+                    r_start,r_end = -1,-1
+                    gt = _qas['raw_answer']
+                    if gt not in ['unknown','yes','no']:
+                        gt_context = nlp(self.pre_proc(gt))
+                        _gt = self.process(gt_context)['word']
+                        found = " ".join(doc_tok).find(gt)
+                        if found == -1:
+                            r_start,r_end = len(doc_tok),len(doc_tok)+len(_gt)-1
+                            doc_tok.extend(_gt)
+                        else:
+                            for i in range(0,len(doc_tok)):
+                                if doc_tok[i:i+len(_gt)] == _gt:
+                                    r_start = i 
+                                    r_end = r_start + len(_gt)-1
+                            if r_start == r_end:
+                                continue
 
             example = CoqaExample(
                 qas_id = _datum['id'] + ' ' + str(_qas['turn_id']),
@@ -601,18 +616,13 @@ class Processor(DataProcessor):
                 rational_end_position = r_end,
                 additional_answers=_qas['additional_answers'] if 'additional_answers' in _qas else None,
             )
+            examples.append(example)
 
-            if len(doc_tok) > 0:
-                examples.append(example)
 
         return examples
 
 
 class Result(object):
-    """
-    Constructs a Result which can be used to evaluate a model's output on the CoQA dataset.
-    """
-
     def __init__(self, unique_id, start_logits, end_logits, yes_logits, no_logits, unk_logits):
         self.unique_id = unique_id
         self.start_logits = start_logits
