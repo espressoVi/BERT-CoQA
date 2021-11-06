@@ -16,7 +16,7 @@ from torch.nn import CrossEntropyLoss
 #
 train_file="coqa-train-v1.0.json"
 predict_file="coqa-dev-v1.0.json"
-output_directory="Bert_comb"
+output_directory="Bert_base"
 pretrained_model="bert-base-uncased"
 epochs = 1.0
 evaluation_batch_size=16
@@ -243,8 +243,8 @@ def main(isTraining = True):
         model = BertBaseUncasedModel.from_pretrained(output_directory)
         tokenizer = BertTokenizer.from_pretrained(output_directory, do_lower_case=True)
         model.to(device)
-        Write_predictions(model, tokenizer, device)#dataset_type = "RG")
+        Write_predictions(model, tokenizer, device, dataset_type = "RG")
 
 if __name__ == "__main__":
-    main()
+    #main()
     main(isTraining = False)
