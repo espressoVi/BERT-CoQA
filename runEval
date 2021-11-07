@@ -1,1 +1,1 @@
-python evaluate-v1.0.py --data-file data/coqa-dev-v1.0.json --pred-file Bert_base/predictions.json
+python evaluate-v1.0.py --data-file data/coqa-dev-v1.0.json --pred-file Bert_comb2/predictions.json

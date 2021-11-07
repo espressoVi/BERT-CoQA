@@ -16,7 +16,7 @@ from torch.nn import CrossEntropyLoss
 #
 train_file="coqa-train-v1.0.json"
 predict_file="coqa-dev-v1.0.json"
-output_directory="Bert_base"
+output_directory="Bert_comb2"
 pretrained_model="bert-base-uncased"
 epochs = 1.0
 evaluation_batch_size=16
@@ -99,9 +99,6 @@ def train(train_dataset, model, tokenizer, device):
     train_sampler = RandomSampler(train_dataset) 
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=train_batch_size)
     t_total = len(train_dataloader) // 1 * epochs
-
-    # Preparing optimizer and scheduler
-    
     optimizer_parameters = [{"params": [p for n, p in model.named_parameters() if not any(nd in n for nd in ["bias", "LayerNorm.weight"])],"weight_decay": 0.01,},
                             {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in ["bias", "LayerNorm.weight"])], "weight_decay": 0.0}]
     optimizer = AdamW(optimizer_parameters,lr=3e-5, eps=1e-8)
@@ -156,8 +153,6 @@ def Write_predictions(model, tokenizer, device, dataset_type = None):
 
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
-        
-    #   wrtiting predictions once training is complete
     evalutation_sampler = SequentialSampler(dataset)
     evaluation_dataloader = DataLoader(dataset, sampler=evalutation_sampler, batch_size=evaluation_batch_size)
     mod_results = []
@@ -176,13 +171,11 @@ def Write_predictions(model, tokenizer, device, dataset_type = None):
             result = Result(unique_id=unique_id, start_logits=start_logits, end_logits=end_logits, yes_logits=yes_logits, no_logits=no_logits, unk_logits=unk_logits)
             mod_results.append(result)
 
-    # Get predictions for development dataset and store it in predictions.json
     output_prediction_file = os.path.join(output_directory, "predictions.json")
     get_predictions(examples, features, mod_results, 20, 30, True, output_prediction_file, False, tokenizer)
 
 
 def load_dataset(tokenizer, evaluate=False, dataset_type = None):
-    #   converting raw coqa dataset into features to be processed by BERT   
     input_dir = "data" if "data" else "."
     if evaluate:
         cache_file = os.path.join(input_dir,"bert-base-uncased_dev")
@@ -204,7 +197,6 @@ def load_dataset(tokenizer, evaluate=False, dataset_type = None):
             if evaluate:
                 examples = processor.get_examples("data", 2,filename=predict_file, threads=12, dataset_type = dataset_type)
             else:
-                #examples = processor.get_examples("data", 2,filename=train_file, threads=12,dataset_type = dataset_type)
                 examples = processor.get_examples("data", 2,filename=train_file, threads=12,dataset_type = "TS")
                 examples.extend(processor.get_examples("data", 2,filename=train_file, threads=12,dataset_type = None))
                 examples.extend(processor.get_examples("data", 2,filename=train_file, threads=12,dataset_type = 'RG'))
@@ -243,7 +235,7 @@ def main(isTraining = True):
         model = BertBaseUncasedModel.from_pretrained(output_directory)
         tokenizer = BertTokenizer.from_pretrained(output_directory, do_lower_case=True)
         model.to(device)
-        Write_predictions(model, tokenizer, device, dataset_type = "RG")
+        Write_predictions(model, tokenizer, device, dataset_type = 'RG')
 
 if __name__ == "__main__":
     #main()
