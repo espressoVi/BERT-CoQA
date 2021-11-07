@@ -88,6 +88,7 @@ def Write_attentions(model, tokenizer, device, dataset_type = None):
     evalutation_sampler = SequentialSampler(dataset)
     evaluation_dataloader = DataLoader(dataset, sampler=evalutation_sampler, batch_size=evaluation_batch_size)
     qr_results = [[],[],[],[],[],[],[],[],[],[],[],[]] 
+    sep_results = [[],[],[],[],[],[],[],[],[],[],[],[]] 
     for batch in tqdm(evaluation_dataloader, desc="Evaluating"):
         model.eval()
         batch = tuple(t.to(device) for t in batch)
@@ -100,6 +101,7 @@ def Write_attentions(model, tokenizer, device, dataset_type = None):
             doc_tok = eval_feature.tokens
             q_start = 1
             q_end = [i for i,j in enumerate(doc_tok) if j == '[SEP]'][0]
+            seps = [i for i,j in enumerate(doc_tok) if j == '[SEP]']
             attentions = outputs
             attentions = [output[i].detach().cpu().numpy() for output in attentions]
             rational_mask = np.array(eval_feature.rational_mask)
@@ -110,11 +112,17 @@ def Write_attentions(model, tokenizer, device, dataset_type = None):
             except:
                 continue
             for j in range(12):
-                qr_results[j].append(attention_qr(attentions[j], -1, r_start,r_end,q_start,q_end, length))
-    qr_results = np.array(qr_results)
+                #qr_results[j].append(attention_qr(attentions[j], -1, r_start,r_end,q_start,q_end, length))
+                sep_results[j].append(attention_sep(attentions[j], -1, seps))
+    #qr_results = np.array(qr_results)
+    sep_results = np.array(sep_results)
     
-    Mean = np.mean(qr_results,axis = 1)
-    STD = np.std(qr_results, axis = 1)
+    #Mean = np.mean(qr_results,axis = 1)
+    #STD = np.std(qr_results, axis = 1)
+    #for i in range(12):
+    #    print(f'{i} &\t {Mean[i]} & \t{STD[i]}\\\\')
+    Mean = np.mean(sep_results,axis = 1)
+    STD = np.std(sep_results, axis = 1)
     for i in range(12):
         print(f'{i} &\t {Mean[i]} & \t{STD[i]}\\\\')
 
@@ -131,6 +139,18 @@ def attention_qr(attention,head,r_start,r_end,q_start,q_end,length):
         eta = (eta*length) / (q_end - q_start)
         su.append(eta)
     return np.mean(su)
+def attention_sep(attention,head,seps):
+    assert head < len(attention)
+    if head == -1:
+        attention = np.mean(attention, axis = 0)
+    else:
+        attention = attention[head]
+    assert attention.shape == (max_seq_length,max_seq_length)
+    p = 0
+    for i in seps:
+        p += np.mean(attention[:,i])
+    return p
+
 
 def load_dataset(tokenizer, evaluate=False, dataset_type = None):
     cache_file = os.path.join("data","bert-base-uncased_dev")
@@ -160,5 +180,5 @@ def main(dataset_type, model_dir):
         Write_attentions(model, tokenizer, device,dataset_type = i)
 
 if __name__ == "__main__":
-    main(dataset_type = ['RG','TS',None], model_dir = 'Bert_base')
+    main(dataset_type = [None,'TS','RG'], model_dir = 'Bert_base')
     main(dataset_type = ['RG','TS',None], model_dir = 'Bert_combM')
