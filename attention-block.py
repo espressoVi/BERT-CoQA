@@ -43,16 +43,11 @@ class BertBaseUncasedModel(BertPreTrainedModel):
 
     def forward(self,input_ids,segment_ids=None,input_masks=None,start_positions=None,end_positions=None,rationale_mask=None,cls_idx=None, attn = False, block = -1):
 
-        if attn:
-            outputs = self.bert(input_ids,token_type_ids=segment_ids,attention_mask=input_masks,
-                    head_mask = None,output_hidden_states = True, output_attentions = True)
-            _, bert_pooled_output,hidden_states, attentions = outputs
-            output_vector = hidden_states[block] 
-            attentions = list(attentions)
-        else:
-            outputs = self.bert(input_ids,token_type_ids=segment_ids,attention_mask=input_masks, head_mask = None)
-            output_vector, bert_pooled_output = outputs
-
+        outputs = self.bert(input_ids,token_type_ids=segment_ids,attention_mask=input_masks,
+                head_mask = None,output_hidden_states = True, output_attentions = True)
+        _, bert_pooled_output,hidden_states, attentions = outputs
+        output_vector = hidden_states[block] 
+        attentions = list(attentions)
 
         start_end_logits = self.span_modelling(output_vector)
         start_logits, end_logits = start_end_logits.split(1, dim=-1)
@@ -69,8 +64,8 @@ class BertBaseUncasedModel(BertPreTrainedModel):
         input_masks = input_masks.type(attention.dtype)
         attention = attention*input_masks + (1-input_masks)*MIN_FLOAT
         attention = F.softmax(attention, dim=-1)
-        if attn:
-            attentions.append(attention)
+        attentions.append(attention)
+
         attention_pooled_output = (attention.unsqueeze(-1) * output_vector).sum(dim=-2)
         cls_output = torch.cat((attention_pooled_output,bert_pooled_output),dim = -1)
 
@@ -79,42 +74,18 @@ class BertBaseUncasedModel(BertPreTrainedModel):
         unk_logits = self.unk_modelling(cls_output)
         yes_no_logits = self.yes_no_modelling(cls_output)
         yes_logits, no_logits = yes_no_logits.split(1, dim=-1)
-
-
-        if self.training:
-            start_positions, end_positions = start_positions + cls_idx, end_positions + cls_idx
-            start = torch.cat((yes_logits, no_logits, unk_logits, start_logits), dim=-1)
-            end = torch.cat((yes_logits, no_logits, unk_logits, end_logits), dim=-1)
-
-            Entropy_loss = CrossEntropyLoss()
-            start_loss = Entropy_loss(start, start_positions)
-            end_loss = Entropy_loss(end, end_positions)
-
-            rationale_positions = rationale_mask.type(attention.dtype)
-            rationale_loss = -rationale_positions*torch.log(rationale_logits + 1e-8) - (1-rationale_positions)*torch.log(1-rationale_logits + 1e-8)
-
-            rationale_loss = torch.mean(rationale_loss)
-            total_loss = (start_loss + end_loss) / 2.0 + rationale_loss * self.beta
-
-            return total_loss
-        if attn:
-            return attentions
-        else:
-            return start_logits, end_logits, yes_logits, no_logits, unk_logits
-
+        return attentions
 
 def convert_to_list(tensor):
     return tensor.detach().cpu().tolist()
 
 def Write_attentions(model, tokenizer, device, dataset_type = None):
     dataset, examples, features = load_dataset(tokenizer, evaluate=True,dataset_type = dataset_type)
-    print(len(dataset))
-
     evalutation_sampler = SequentialSampler(dataset)
     evaluation_dataloader = DataLoader(dataset, sampler=evalutation_sampler, batch_size=evaluation_batch_size)
     res = []
     for c in tqdm(range(1,13),desc = "Block: "):
-        su,cnt = 0,0
+        su = []
         for batch in evaluation_dataloader:
             model.eval()
             batch = tuple(t.to(device) for t in batch)
@@ -133,27 +104,16 @@ def Write_attentions(model, tokenizer, device, dataset_type = None):
                     r_start,r_end = _ones[0],_ones[-1]+1
                 except:
                     continue
-                su += np.sum(attentions[12][r_start:r_end])
-                cnt+=1
-        res.append(su/cnt)
+                su.append(np.sum(attentions[12][r_start:r_end]))
+        res.append((np.mean(su),np.std(su)))
     for i in range(12):
-        print(f"{i} & {res[i]:.6f} \\\\")
+        print(f"{i} & {res[i][0]:.6f} & {res[i][1]:.6f}\\\\")
 
 def load_dataset(tokenizer, evaluate=True, dataset_type = None):
-    cache_file = os.path.join('data',"bert-base_dev")
-
-    if os.path.exists(cache_file):# and False: #for new dataset
-        print("Loading cache",cache_file)
-        features_and_dataset = torch.load(cache_file)
-        features, dataset, examples = (
-            features_and_dataset["features"],features_and_dataset["dataset"],features_and_dataset["examples"])
-    else:
-        print("Creating features from dataset file at", input_dir)
-        processor = Processor()
-        examples = processor.get_examples("data", 2,filename=predict_file, threads=12, dataset_type = dataset_type)
-        features, dataset = Extract_Features(examples=examples,
+    processor = Processor()
+    examples = processor.get_examples("data", 2,filename=predict_file, threads=12, dataset_type = dataset_type)
+    features, dataset = Extract_Features(examples=examples,
                 tokenizer=tokenizer,max_seq_length=512, doc_stride=128, max_query_length=64, is_training=not evaluate, threads=12)
-        torch.save({"features": features, "dataset": dataset, "examples": examples}, cache_file)
     return dataset, examples, features
 
 
@@ -169,8 +129,8 @@ def main(model_directory,dataset_type):
         Write_attentions(model, tokenizer, device,dataset_type = j)
 
 if __name__ == "__main__":
-    #main(model_directory = "Bert_base",dataset_type = [None])
-    main(model_directory = "Bert_combM",dataset_type = [None])
+    main(model_directory = "Bert_base",dataset_type = [None,'RG','TS'])
+    main(model_directory = "Bert_comb2",dataset_type = [None,'RG','TS'])
 
 #def attention_res(attention,head,r_start,r_end,length):
 #    assert head < len(attention)
@@ -189,5 +149,3 @@ if __name__ == "__main__":
 #            su_nr.append(eta)
 #        su.append(eta)
 #    return np.mean(su), np.mean(su_r),np.mean(su_nr)
-
-
