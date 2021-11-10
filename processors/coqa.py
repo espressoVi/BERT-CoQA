@@ -228,7 +228,7 @@ def Extract_Features(examples, tokenizer, max_seq_length, doc_stride, max_query_
             tqdm(
                 p.imap(annotate_, examples, chunksize=32),
                 total=len(examples),
-                desc="Etracting features from dataset",
+                desc="Extracting features from dataset",
             )
         )
 
