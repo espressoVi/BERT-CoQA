@@ -16,7 +16,7 @@ from torch.nn import CrossEntropyLoss
 #
 train_file="coqa-train-v1.0.json"
 predict_file="coqa-dev-v1.0.json"
-output_directory="Bert_comb2"
+output_directory="Bert_comb3"
 pretrained_model="bert-base-uncased"
 epochs = 1.0
 evaluation_batch_size=16
@@ -176,45 +176,38 @@ def Write_predictions(model, tokenizer, device, dataset_type = None):
 
 
 def load_dataset(tokenizer, evaluate=False, dataset_type = None):
-    input_dir = "data" if "data" else "."
-    if evaluate:
-        cache_file = os.path.join(input_dir,"bert-base-uncased_dev")
-    else:
-        cache_file = os.path.join(input_dir,"bert-base-uncased_train")
+    input_dir = "data"
+    cache_file = os.path.join(input_dir,"bert-base-uncased_dev") if evaluate else os.path.join(input_dir,"bert-base-uncased_train")
 
     if os.path.exists(cache_file) and False:
-        print("Loading cache",cache_file)
+        print(f"Loading cached {cache_file}...")
         features_and_dataset = torch.load(cache_file)
-        features, dataset, examples = (
-            features_and_dataset["features"],features_and_dataset["dataset"],features_and_dataset["examples"])
+        features, dataset, examples = (features_and_dataset["features"],features_and_dataset["dataset"],features_and_dataset["examples"])
     else:
-        print("Creating features from dataset file at", input_dir)
-
-        if not "data" and ((evaluate and not predict_file) or (not evaluate and not train_file)):
-            raise ValueError("predict_file or train_file not found")
+        print(f"Creating features from dataset file at {input_dir}")
+        if ((evaluate and not predict_file) or (not evaluate and not train_file)):
+            raise ValueError("predict_file or train_file name not found")
         else:
             processor = Processor()
             if evaluate:
                 examples = processor.get_examples("data", 2,filename=predict_file, threads=12, dataset_type = dataset_type)
             else:
-                examples = processor.get_examples("data", 2,filename=train_file, threads=12,dataset_type = "TS")
-                examples.extend(processor.get_examples("data", 2,filename=train_file, threads=12,dataset_type = None))
-                examples.extend(processor.get_examples("data", 2,filename=train_file, threads=12,dataset_type = 'RG'))
+                examples = []
+                for datas in dataset_type:
+                    examples.extend(processor.get_examples("data", 2,filename=train_file, threads=12,dataset_type = datas))
 
         features, dataset = Extract_Features(examples=examples,
                 tokenizer=tokenizer,max_seq_length=512, doc_stride=128, max_query_length=64, is_training=not evaluate, threads=12)
-    #   caching it in a cache file to reduce time
         torch.save({"features": features, "dataset": dataset, "examples": examples}, cache_file)
     if evaluate:
         return dataset, examples, features
     return dataset
 
 
-def main(isTraining = True):
+def main(isTraining,dataset_type):
     assert torch.cuda.is_available()
     device = torch.device('cuda')
     config = BertConfig.from_pretrained(pretrained_model)
-
     if isTraining:
         tokenizer = BertTokenizer.from_pretrained(pretrained_model)
         model = BertBaseUncasedModel.from_pretrained(pretrained_model, from_tf=bool(".ckpt" in pretrained_model), config=config,cache_dir=None,)
@@ -225,9 +218,8 @@ def main(isTraining = True):
         else:
             os.makedirs(output_directory)
     
-        train_dataset = load_dataset(tokenizer, evaluate=False)
+        train_dataset = load_dataset(tokenizer, evaluate=False, dataset_type = dataset_type)
         train_loss = train(train_dataset, model, tokenizer, device)
-    
         model_to_save = model.module if hasattr(model, "module") else model
         model_to_save.save_pretrained(output_directory)
         tokenizer.save_pretrained(output_directory)
@@ -235,8 +227,7 @@ def main(isTraining = True):
         model = BertBaseUncasedModel.from_pretrained(output_directory)
         tokenizer = BertTokenizer.from_pretrained(output_directory, do_lower_case=True)
         model.to(device)
-        Write_predictions(model, tokenizer, device, dataset_type = 'RG')
+        Write_predictions(model, tokenizer, device, dataset_type = dataset_type[0])
 
 if __name__ == "__main__":
-    #main()
-    main(isTraining = False)
+    main(isTraining = True,dataset_type = ['RG'])

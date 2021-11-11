@@ -15,7 +15,6 @@ from processors.utils import DataProcessor
 
 
 def _improve_answer_span(doc_tokens, input_start, input_end, tokenizer, orig_answer_text):
-    """Returns tokenized answer spans that better match the annotated answer."""
     tok_answer_text = " ".join(tokenizer.tokenize(orig_answer_text))
 
     for new_start in range(input_start, input_end + 1):
@@ -28,7 +27,6 @@ def _improve_answer_span(doc_tokens, input_start, input_end, tokenizer, orig_ans
 
 
 def _check_is_max_context(doc_spans, cur_span_index, position):
-    """Check if this is the 'max context' doc span for the token."""
     best_score = None
     best_span_index = None
     for (span_index, doc_span) in enumerate(doc_spans):
@@ -139,13 +137,11 @@ def Extract_Feature(example, tokenizer, max_seq_length = 512, doc_stride = 128, 
             segment_ids.append(1)
         tokens.append("[SEP]")
         segment_ids.append(1)
-
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
         # The mask has 1 for real tokens and 0 for padding tokens.
         input_mask = [1] * len(input_ids)
 
-        # Zero-pad up to the sequence length.
         while len(input_ids) < max_seq_length:
             input_ids.append(0)
             input_mask.append(0)
@@ -154,8 +150,6 @@ def Extract_Feature(example, tokenizer, max_seq_length = 512, doc_stride = 128, 
         assert len(input_ids) == max_seq_length
         assert len(input_mask) == max_seq_length
         assert len(segment_ids) == max_seq_length
-
-        # rational_part
         doc_start = doc_span.start
         doc_end = doc_span.start + doc_span.length - 1
         out_of_span = False
@@ -169,7 +163,6 @@ def Extract_Feature(example, tokenizer, max_seq_length = 512, doc_stride = 128, 
             doc_offset = len(query_tokens) + 2
             rational_start_position = tok_r_start_position - doc_start + doc_offset
             rational_end_position = tok_r_end_position - doc_start + doc_offset
-        # rational_part_end
 
         rational_mask = [0] * len(input_ids)
         if not out_of_span:
@@ -228,7 +221,7 @@ def Extract_Features(examples, tokenizer, max_seq_length, doc_stride, max_query_
             tqdm(
                 p.imap(annotate_, examples, chunksize=32),
                 total=len(examples),
-                desc="Etracting features from dataset",
+                desc="Extracting features from dataset",
             )
         )
 
@@ -576,12 +569,11 @@ class Processor(DataProcessor):
 
             doc_tok = _datum['annotated_context']['word']
 
-            if dataset_type is not None:
+            if dataset_type is in ['TS','RG']:
                 if dataset_type == "TS":
                     edge,inc = r_end,True
-                elif dataset_type in ["R","RG"]:
+                elif dataset_type == "RG":
                     edge,inc = r_start,False
-                    r_start,r_end = -1,-1
                 for i,j in _datum['annotated_context']['sentences']:
                     if edge >= i and edge <= j:
                         sent = j if inc else i
@@ -591,6 +583,7 @@ class Processor(DataProcessor):
                 if dataset_type == "RG":
                     if " ".join(doc_tok).find(_qas['raw_answer']) == -1 and _qas['raw_answer'] not in ['unknown','yes','no']:
                         doc_tok.append(_qas['raw_answer'])
+                    r_start,r_end = -1,-1
 
             example = CoqaExample(
                 qas_id = _datum['id'] + ' ' + str(_qas['turn_id']),
@@ -603,17 +596,11 @@ class Processor(DataProcessor):
                 rational_end_position = r_end,
                 additional_answers=_qas['additional_answers'] if 'additional_answers' in _qas else None,
             )
-
             examples.append(example)
-
         return examples
 
 
 class Result(object):
-    """
-    Constructs a Result which can be used to evaluate a model's output on the CoQA dataset.
-    """
-
     def __init__(self, unique_id, start_logits, end_logits, yes_logits, no_logits, unk_logits):
         self.unique_id = unique_id
         self.start_logits = start_logits
