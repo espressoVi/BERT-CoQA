@@ -1,5 +1,3 @@
-import collections
-import glob
 import os
 import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
@@ -13,15 +11,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss
 import numpy as np
-import pickle
+import getopt,sys
 
-train_file="coqa-train-v1.1.json"
 predict_file="coqa-dev-v1.0.json"
-output_directory="Bert_base"
+#predict_file="coqa-train-v1.1.json"
 pretrained_model="bert-base-uncased"
-epochs = 1.0
 evaluation_batch_size=16
-train_batch_size=5
 MIN_FLOAT = -1e30
 max_seq_length = 512 
 
@@ -30,7 +25,6 @@ class BertBaseUncasedModel(BertPreTrainedModel):
         super(BertBaseUncasedModel, self).__init__(config)
         self.bert = BertModel(config)
         hidden_size = config.hidden_size
-
         self.fc = nn.Linear(hidden_size,hidden_size, bias = False)
         self.fc2 = nn.Linear(hidden_size,hidden_size, bias = False)
         self.rationale_modelling = nn.Linear(hidden_size,1, bias = False)
@@ -39,16 +33,13 @@ class BertBaseUncasedModel(BertPreTrainedModel):
         self.unk_modelling = nn.Linear(2*hidden_size,1, bias = False)
         self.yes_no_modelling = nn.Linear(2*hidden_size,2, bias = False)
         self.relu = nn.ReLU()
-
         self.beta = 5.0
         self.init_weights()
 
     def forward(self,input_ids,segment_ids=None,input_masks=None,start_positions=None,end_positions=None,rationale_mask=None,cls_idx=None):
-
         outputs = self.bert(input_ids,token_type_ids=segment_ids,attention_mask=input_masks, head_mask = None, output_attentions = True)
         output_vector, bert_pooled_output, attentions = outputs
         attentions = list(attentions)
-
 
         start_end_logits = self.span_modelling(output_vector)
         start_logits, end_logits = start_end_logits.split(1, dim=-1)
@@ -78,13 +69,8 @@ class BertBaseUncasedModel(BertPreTrainedModel):
 
         return attentions
 
-
-def convert_to_list(tensor):
-    return tensor.detach().cpu().tolist()
-
-def Write_attentions(model, tokenizer, device, dataset_type = None):
+def Write_attentions(model, tokenizer, device, dataset_type = None, output_directory = None):
     dataset, examples, features = load_dataset(tokenizer, evaluate=True,dataset_type = dataset_type)
-
     evalutation_sampler = SequentialSampler(dataset)
     evaluation_dataloader = DataLoader(dataset, sampler=evalutation_sampler, batch_size=evaluation_batch_size)
     qr_results = [[],[],[],[],[],[],[],[],[],[],[],[]] 
@@ -112,19 +98,25 @@ def Write_attentions(model, tokenizer, device, dataset_type = None):
             except:
                 continue
             for j in range(12):
-                #qr_results[j].append(attention_qr(attentions[j], -1, r_start,r_end,q_start,q_end, length))
+                qr_results[j].append(attention_qr(attentions[j], -1, r_start,r_end,q_start,q_end, length))
                 sep_results[j].append(attention_sep(attentions[j], -1, seps))
-    #qr_results = np.array(qr_results)
+    qr_results = np.array(qr_results)
     sep_results = np.array(sep_results)
-    
-    #Mean = np.mean(qr_results,axis = 1)
-    #STD = np.std(qr_results, axis = 1)
-    #for i in range(12):
-    #    print(f'{i} &\t {Mean[i]} & \t{STD[i]}\\\\')
-    Mean = np.mean(sep_results,axis = 1)
-    STD = np.std(sep_results, axis = 1)
-    for i in range(12):
-        print(f'{i} &\t {Mean[i]} & \t{STD[i]}\\\\')
+
+    Mean_qr = np.mean(qr_results,axis = 1)
+    STD_qr = np.std(qr_results, axis = 1)
+    Mean_sep = np.mean(sep_results,axis = 1)
+    STD_sep = np.std(sep_results, axis = 1)
+    qrFile = os.path.join(output_directory,f'etaQR_{dataset_type}.txt')
+    sepFile = os.path.join(output_directory,f'pSEP_{dataset_type}.txt')
+    with open(qrFile,'w') as f:
+        f.write('Block \tMean \tSTD\n')
+        for i in range(12):
+            f.write(f'{i} \t{Mean_qr[i]} \t{STD_qr[i]}\n')
+    with open(sepFile,'w') as f:
+        f.write('Block \tMean \tSTD\n')
+        for i in range(12):
+            f.write(f'{i} \t{Mean_sep[i]} \t{STD_sep[i]}\n')
 
 def attention_qr(attention,head,r_start,r_end,q_start,q_end,length):
     assert head < len(attention)
@@ -139,6 +131,7 @@ def attention_qr(attention,head,r_start,r_end,q_start,q_end,length):
         eta = (eta*length) / (q_end - q_start)
         su.append(eta)
     return np.mean(su)
+
 def attention_sep(attention,head,seps):
     assert head < len(attention)
     if head == -1:
@@ -151,24 +144,15 @@ def attention_sep(attention,head,seps):
         p += np.mean(attention[:,i])
     return p
 
-
 def load_dataset(tokenizer, evaluate=False, dataset_type = None):
-    cache_file = os.path.join("data","bert-base-uncased_dev")
-    if os.path.exists(cache_file) and False:
-        print("Loading cache",cache_file)
-        features_and_dataset = torch.load(cache_file)
-        features, dataset, examples = (features_and_dataset["features"],features_and_dataset["dataset"],features_and_dataset["examples"])
-    else:
-        print("Creating features from dataset file ")
-        processor = Processor()
-        examples = processor.get_examples("data", 2,filename=predict_file, threads=12, dataset_type = dataset_type)
-        features, dataset = Extract_Features(examples=examples,
-                tokenizer=tokenizer,max_seq_length=512, doc_stride=128, max_query_length=64, is_training=not evaluate, threads=12)
-        torch.save({"features": features, "dataset": dataset, "examples": examples}, cache_file)
+    processor = Processor()
+    examples = processor.get_examples("data", 2,filename=predict_file, threads=12, dataset_type = dataset_type, attention = True)
+    features, dataset = Extract_Features(examples=examples,
+            tokenizer=tokenizer,max_seq_length=512, doc_stride=128, max_query_length=64, is_training=not evaluate, threads=12)
     return dataset, examples, features
 
 
-def main(dataset_type, model_dir):
+def manager(model_dir, dataset_type):
     assert torch.cuda.is_available()
     device = torch.device('cuda')
     config = BertConfig.from_pretrained(pretrained_model)
@@ -177,8 +161,33 @@ def main(dataset_type, model_dir):
     model.to(device)
     for i in dataset_type:
         print(model_dir,i)
-        Write_attentions(model, tokenizer, device,dataset_type = i)
+        Write_attentions(model, tokenizer, device,dataset_type = i, output_directory = model_dir)
+
+def main():
+    output_directory = "bert"
+    argumentList = sys.argv[1:]
+    options = "ho:"
+    long_options = ["help", "output="]
+    try:
+        arguments, values = getopt.getopt(argumentList, options, long_options)
+        for currentArgument, currentValue in arguments:
+            if currentArgument in ("-h", "--Help"):
+                print ("""python attetion-qr.py --output [directory name]
+                        --output [dir_name] is the output directory to load weights from and write
+                        values to.
+                        e.g. python main.py --output bert_comb
+                        for eta and p_sep values for model stored at bert_comb""")
+                return
+     
+            elif currentArgument in ("-o", "--output"):
+                output_directory = currentValue
+            else:
+                print('See "python main.py --help" for usage')
+                return
+
+    except getopt.error as err:
+        print (str(err))
+    manager(model_dir = output_directory, dataset_type = ['RG','TS',None])
 
 if __name__ == "__main__":
-    main(dataset_type = [None,'TS','RG'], model_dir = 'Bert_base')
-    main(dataset_type = ['RG','TS',None], model_dir = 'Bert_combM')
+    main()
