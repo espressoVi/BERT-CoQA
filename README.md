@@ -9,12 +9,15 @@ Implementation of Intervention Based Training for conversational question answer
 4) Attention metrics eta, p_sep, p_rationale (blockwise)
 
 ## Usage:
-### Install the necessary requirements from the environment.yml file by entering
+#### Clone this repository
+#### Install the necessary requirements 
+from the environment.yml file by entering
 ```
 conda env create -f environment.yml
 conda activate RobustProject
 ```
-2) Download the coqa dataset and place in ./data, files can be downloaded from 
+#### Download
+The coqa dataset is to be downloaded and place in ./data, files can be downloaded from 
 https://nlp.stanford.edu/data/coqa/coqa-train-v1.0.json  and
 https://nlp.stanford.edu/data/coqa/coqa-dev-v1.0.json
 You should have the files 
@@ -22,7 +25,7 @@ You should have the files
 ./data/coqa-dev-v1.0.json
 ./data/coqa-train-v1.0.json
 ```
-### Run main.py with
+#### Running
 
 ```
 python main.py --train [O|C] --eval [O|TS|RG] --output [directory]
@@ -38,20 +41,22 @@ python main.py --train O --eval O --output bert_orig (original training and eval
 python main.py --eval TS --output bert_orig (evaluate the model at bert_orig on TS dataset)
 python main.py --train C --eval O --output bert_orig (combined training and eval on O)
 
-### Following eval you will have a predictions.json file at the provided directory. Then run
+#### Evaluation
+Following eval you will have a predictions.json file at the provided directory. Then run
 
 python evaluate-v1.0.py --data-file data/coqa-dev-v1.0.json --pred-file [directory]/predictions.json
 
-### Steps 3,4 needs to be repeated for original and combined training and evaluation on all datasets.
+#### Repeat
+The previous two steps needs to be repeated for original and combined training and evaluation on all datasets.
 
-### run attention-block.py with
-python attention-block.py --output [directory] 
+#### run attention-block.py with
+```python attention-block.py --output [directory] ```
 
 To get blockwise rationale statistics of the model stored at directory. Output is stored in [directory].
 
-### run attention-qr.py with
-python attention-qr.py --output [directory] 
+#### run attention-qr.py with
+```python attention-qr.py --output [directory] ```
 
 To get eta and p_sep statistics of the model stored at directory. Output is stored in [directory]
 
-### Repeat step 6,7 for the original and combined training model.
+#### Repeat step 6,7 for the original and combined training model.
