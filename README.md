@@ -44,7 +44,9 @@ python main.py --train C --eval O --output bert_orig (combined training and eval
 #### Evaluation
 Following eval you will have a predictions.json file at the provided directory. Then run
 
+```
 python evaluate-v1.0.py --data-file data/coqa-dev-v1.0.json --pred-file [directory]/predictions.json
+```
 
 #### Repeat
 The previous two steps needs to be repeated for original and combined training and evaluation on all datasets.
